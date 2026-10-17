@@ -6,3 +6,4 @@ export * from "./debounce";
 export * from "./throttle";
 export * from "./safe";
 export * from "./analyze";
+export * from "./standard-decorators";
