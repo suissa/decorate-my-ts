@@ -1,23 +1,31 @@
+/** Measures execution time and heap delta for a method. */
 export function Analyze(label?: string) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
+  return function <This, Args extends unknown[], Return>(
+    originalMethod: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ) {
+    const tag = label ?? String(context.name);
 
-    descriptor.value = async function (...args: any[]) {
-      const tag = label || propertyKey;
-      console.time(tag);
-      const startMem = process.memoryUsage().heapUsed;
+    return function (this: This, ...args: Args): Return {
+      const start = Date.now();
+      const startMemory = typeof process !== "undefined" ? process.memoryUsage().heapUsed : 0;
+
+      const finish = () => {
+        const endMemory = typeof process !== "undefined" ? process.memoryUsage().heapUsed : startMemory;
+        console.info(`[${tag}] ${Date.now() - start}ms; heap delta: ${((endMemory - startMemory) / 1024 / 1024).toFixed(4)} MB`);
+      };
 
       try {
-        const result = await originalMethod.apply(this, args);
+        const result = originalMethod.call(this, ...args);
+        if (result !== null && typeof result === "object" && "then" in result) {
+          return Promise.resolve(result).finally(finish) as Return;
+        }
+        finish();
         return result;
-      } finally {
-        const endMem = process.memoryUsage().heapUsed;
-        const diffMem = (endMem - startMem) / 1024 / 1024; // MB
-        console.timeEnd(tag);
-        console.log(`[${tag}] Memory Delta: ${diffMem.toFixed(4)} MB`);
+      } catch (error) {
+        finish();
+        throw error;
       }
     };
-
-    return descriptor;
   };
 }
