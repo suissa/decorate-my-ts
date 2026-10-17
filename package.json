@@ -4,7 +4,9 @@
   "description": "TypeScript 5 standard method decorators",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -14,11 +16,16 @@
     "type": "git",
     "url": "git+https://github.com/suissa/decorate-my-ts.git"
   },
-  "keywords": ["typescript", "decorators", "standard-decorators"],
+  "keywords": [
+    "typescript",
+    "decorators",
+    "standard-decorators"
+  ],
   "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
     "tsx": "^4.20.5",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@types/node": "^22.0.0"
   }
 }
