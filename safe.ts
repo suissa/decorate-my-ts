@@ -1,29 +1,29 @@
-export function Safe(onError?: (error: any) => void) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
+/** Catches synchronous errors and rejected promises from a method. */
+export function Safe(onError?: (error: unknown) => void) {
+  return function <This, Args extends unknown[], Return>(
+    originalMethod: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ) {
+    const name = String(context.name);
+    const report = (error: unknown) => {
+      if (onError) onError(error);
+      else console.error(`Error in ${name}:`, error);
+    };
 
-    descriptor.value = function (...args: any[]) {
+    return function (this: This, ...args: Args): Return | Promise<Awaited<Return> | undefined> {
       try {
-        const result = originalMethod.apply(this, args);
-        if (result instanceof Promise) {
-          return result.catch((error) => {
-            if (onError) {
-              onError(error);
-            } else {
-              console.error(`Error in ${propertyKey}:`, error);
-            }
-          });
+        const result = originalMethod.call(this, ...args);
+        if (result !== null && typeof result === "object" && "then" in result) {
+          return Promise.resolve(result).catch((error: unknown) => {
+            report(error);
+            return undefined;
+          }) as Promise<Awaited<Return> | undefined>;
         }
         return result;
       } catch (error) {
-        if (onError) {
-          onError(error);
-        } else {
-          console.error(`Error in ${propertyKey}:`, error);
-        }
+        report(error);
+        return undefined as Return;
       }
     };
-
-    return descriptor;
   };
 }
