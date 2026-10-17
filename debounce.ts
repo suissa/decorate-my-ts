@@ -1,19 +1,23 @@
 export function Debounce(delay: number) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
-    const timerKey = Symbol(`__debounce_timer_${propertyKey}__`);
+  if (!Number.isFinite(delay) || delay < 0) {
+    throw new RangeError("delay must be a non-negative finite number");
+  }
 
-    descriptor.value = function (...args: any[]) {
-      const timer = (this as any)[timerKey];
-      if (timer) {
-        clearTimeout(timer);
-      }
+  const timers = new WeakMap<object, ReturnType<typeof setTimeout>>();
 
-      (this as any)[timerKey] = setTimeout(() => {
-        originalMethod.apply(this, args);
-      }, delay);
+  return function <This extends object, Args extends any[], Return>(
+    originalMethod: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): (this: This, ...args: Args) => void {
+    return function (this: This, ...args: Args): void {
+      const instance = this;
+      const existing = timers.get(instance);
+      if (existing) clearTimeout(existing);
+
+      timers.set(instance, setTimeout(() => {
+        timers.delete(instance);
+        void originalMethod.apply(instance, args);
+      }, delay));
     };
-
-    return descriptor;
   };
 }
