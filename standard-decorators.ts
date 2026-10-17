@@ -491,13 +491,16 @@ export function NonReentrant<This extends object, Args extends unknown[], Return
 }
 
 /** Trims whitespace from string results, including fulfilled promises. */
-export function TrimResult<This, Args extends unknown[]>(method: Method<This, Args, string>, _context: ClassMethodDecoratorContext<This, Method<This, Args, string>>) {
-  return function (this: This, ...args: Args): string {
-    const result = method.apply(this, args);
-    if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
-      return Promise.resolve(result).then(value => value.trim()) as string;
+export function TrimResult<This, Args extends unknown[], Return extends string | Promise<string>>(
+  method: Method<This, Args, Return>,
+  _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>,
+): Method<This, Args, Return> {
+  return function (this: This, ...args: Args): Return {
+    const result: unknown = method.apply(this, args);
+    if (result instanceof Promise) {
+      return result.then(value => String(value).trim()) as Return;
     }
-    return result.trim();
+    return String(result).trim() as Return;
   };
 }
 
