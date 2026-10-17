@@ -9,8 +9,18 @@
     "rootDir": ".",
     "skipLibCheck": true,
     "experimentalDecorators": false,
-    "useDefineForClassFields": true
+    "useDefineForClassFields": true,
+    "noEmitOnError": true
   },
-  "include": ["*.ts", "advanced/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "index.ts",
+    "base.ts",
+    "memoize.ts",
+    "retry.ts",
+    "debounce.ts",
+    "throttle.ts",
+    "safe.ts",
+    "analyze.ts"
+  ],
+  "exclude": ["node_modules", "dist", "tests", "advanced"]
 }
