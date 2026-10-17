@@ -1,28 +1,28 @@
-import { RequestHandler } from '../types';
-
 export interface DecoratorMeta {
-  propertyKey: string | symbol;
+  name: string | symbol;
+  kind: "method";
 }
 
-export type HandlerInterceptor = (
-  handler: RequestHandler,
+export type HandlerInterceptor<This, Args extends unknown[], Return> = (
+  handler: (this: This, ...args: Args) => Return,
   meta: DecoratorMeta
-) => RequestHandler;
+) => (this: This, ...args: Args) => Return;
 
-export const createHandlerDecorator = (
-  interceptorFactory: HandlerInterceptor
-): MethodDecorator => {
-  return (_target, propertyKey, descriptor: PropertyDescriptor) => {
-    const original = descriptor.value;
-    if (typeof original !== 'function') {
-      throw new TypeError(`Decorator @${String(propertyKey)} só pode ser aplicado em métodos.`);
+/** Creates a TypeScript 5 standard method decorator. */
+export function createHandlerDecorator<This, Args extends unknown[], Return>(
+  interceptorFactory: HandlerInterceptor<This, Args, Return>
+) {
+  return function (
+    originalMethod: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ) {
+    if (context.private) {
+      throw new TypeError("Private methods are not supported by this handler decorator.");
     }
 
-    descriptor.value = function (...args: unknown[]) {
-      const boundHandler: RequestHandler = (original as RequestHandler).bind(this);
-      const intercepted = interceptorFactory(boundHandler, { propertyKey });
-      return intercepted(...(args as Parameters<RequestHandler>));
-    };
+    return interceptorFactory(originalMethod, {
+      name: context.name,
+      kind: "method"
+    });
   };
-};
-
+}

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "experimentalDecorators": false,
+    "useDefineForClassFields": true,
+    "noEmitOnError": true
+  },
+  "include": [
+    "index.ts",
+    "base.ts",
+    "memoize.ts",
+    "retry.ts",
+    "debounce.ts",
+    "throttle.ts",
+    "safe.ts",
+    "analyze.ts"
+  ],
+  "exclude": ["node_modules", "dist", "tests", "advanced"]
+}

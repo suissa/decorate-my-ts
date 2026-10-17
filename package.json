@@ -1,21 +1,31 @@
 {
-  "name": "decorators",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "decorate-my-ts",
+  "version": "2.0.0",
+  "description": "TypeScript 5 standard method decorators",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/suissa/decorate-my-ts.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "typescript",
+    "decorators",
+    "standard-decorators"
+  ],
+  "license": "MIT",
   "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/suissa/decorate-my-ts/issues"
-  },
-  "homepage": "https://github.com/suissa/decorate-my-ts#readme"
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.0.0",
+    "@types/node": "^22.0.0"
+  }
 }
