@@ -1,18 +1,23 @@
+/** Limits a method to at most one invocation per interval, per instance. */
 export function Throttle(interval: number) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
-    const lastRunKey = Symbol(`__throttle_lastRun_${propertyKey}__`);
+  if (!Number.isFinite(interval) || interval < 0) {
+    throw new RangeError("Throttle interval must be a non-negative finite number.");
+  }
 
-    descriptor.value = function (...args: any[]) {
-      const lastRun = (this as any)[lastRunKey] || 0;
+  const lastRun = new WeakMap<object, number>();
+
+  return function <This extends object, Args extends unknown[], Return>(
+    originalMethod: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ) {
+    const name = String(context.name);
+
+    return function (this: This, ...args: Args): Return | undefined {
       const now = Date.now();
-
-      if (now - lastRun >= interval) {
-        (this as any)[lastRunKey] = now;
-        originalMethod.apply(this, args);
-      }
+      const previous = lastRun.get(this) ?? Number.NEGATIVE_INFINITY;
+      if (now - previous < interval) return undefined;
+      lastRun.set(this, now);
+      return originalMethod.call(this, ...args);
     };
-
-    return descriptor;
   };
 }
