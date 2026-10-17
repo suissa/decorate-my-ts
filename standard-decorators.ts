@@ -194,3 +194,143 @@ export function Authorize<This, Args extends unknown[], Return>(
     };
   };
 }
+
+
+/** Caches results per instance and argument tuple for the configured time-to-live. */
+export function CacheResult<This extends object, Args extends unknown[], Return>(ttlMs = 30_000) {
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError("ttlMs must be a non-negative finite number");
+  const cache = new WeakMap<This, Map<string, { expiresAt: number; value: Return }>>();
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      let instanceCache = cache.get(this);
+      if (!instanceCache) { instanceCache = new Map(); cache.set(this, instanceCache); }
+      const key = JSON.stringify(args);
+      const now = Date.now();
+      const entry = instanceCache.get(key);
+      if (entry && entry.expiresAt >= now) return entry.value;
+      const value = method.apply(this, args);
+      instanceCache.set(key, { expiresAt: now + ttlMs, value });
+      return value;
+    };
+  };
+}
+
+/** Retries rejected promises up to maxAttempts total invocations. */
+export function RetryOnFailure<This, Args extends unknown[], Return>(maxAttempts = 3, delayMs = 0) {
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new RangeError("maxAttempts must be a positive integer");
+  if (!Number.isFinite(delayMs) || delayMs < 0) throw new RangeError("delayMs must be non-negative");
+  return function (method: Method<This, Args, Promise<Return>>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Promise<Return>>>) {
+    return async function (this: This, ...args: Args): Promise<Return> {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try { return await method.apply(this, args); }
+        catch (error) {
+          lastError = error;
+          if (attempt < maxAttempts && delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+      throw lastError;
+    };
+  };
+}
+
+/** Serializes asynchronous calls per instance, preserving invocation order. */
+export function Serialize<This extends object, Args extends unknown[], Return>() {
+  const queues = new WeakMap<This, Promise<unknown>>();
+  return function (method: Method<This, Args, Promise<Return>>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Promise<Return>>>) {
+    return function (this: This, ...args: Args): Promise<Return> {
+      const previous = queues.get(this) ?? Promise.resolve();
+      const current = previous.catch(() => undefined).then(() => method.apply(this, args));
+      queues.set(this, current);
+      return current;
+    };
+  };
+}
+
+/** Maps invocation arguments before calling the original method. */
+export function MapArgs<This, Args extends unknown[], Return, Mapped extends unknown[]>(
+  mapper: (...args: Args) => Mapped,
+) {
+  return function (method: Method<This, Mapped, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Mapped, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      return method.apply(this, mapper(...args));
+    };
+  };
+}
+
+/** Reports the number of invocations without retaining argument values. */
+export function CountCalls<This, Args extends unknown[], Return>(onCount: (count: number) => void = () => undefined) {
+  let count = 0;
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      count += 1;
+      onCount(count);
+      return method.apply(this, args);
+    };
+  };
+}
+
+/** Enforces a precondition before the method is invoked. */
+export function Ensure<This, Args extends unknown[], Return>(
+  condition: (instance: This, args: Args) => boolean,
+  message = "Method precondition failed",
+) {
+  return function (method: Method<This, Args, Return>, context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    const name = String(context.name);
+    return function (this: This, ...args: Args): Return {
+      if (!condition(this, args)) throw new Error(`${message}: ${name}`);
+      return method.apply(this, args);
+    };
+  };
+}
+
+/** Clamps numeric return values to an inclusive range. */
+export function ClampResult<This, Args extends unknown[]>(minimum: number, maximum: number) {
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum) throw new RangeError("Invalid clamp range");
+  return function (method: Method<This, Args, number>, _context: ClassMethodDecoratorContext<This, Method<This, Args, number>>) {
+    return function (this: This, ...args: Args): number {
+      return Math.min(maximum, Math.max(minimum, method.apply(this, args)));
+    };
+  };
+}
+
+/** Binds a decorated method to its instance during instance initialization. */
+export function Bind<This extends object, Args extends unknown[], Return>(
+  method: Method<This, Args, Return>,
+  context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>,
+): void {
+  if (context.private) throw new TypeError("Bind cannot decorate private methods");
+  context.addInitializer(function (this: This) {
+    const instance = this as This & Record<string | symbol, unknown>;
+    const name = context.name;
+    Object.defineProperty(instance, name, {
+      configurable: true,
+      writable: true,
+      value: method.bind(this),
+    });
+  });
+}
+
+/** Runs a hook immediately before each invocation. */
+export function Before<This, Args extends unknown[], Return>(hook: (instance: This, args: Args) => void) {
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      hook(this, args);
+      return method.apply(this, args);
+    };
+  };
+}
+
+/** Runs a hook after a successful result, including fulfilled promises. */
+export function After<This, Args extends unknown[], Return>(hook: (result: Awaited<Return>, instance: This, args: Args) => void) {
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      const result = method.apply(this, args);
+      if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+        return Promise.resolve(result).then(value => { hook(value as Awaited<Return>, this, args); return value; }) as Return;
+      }
+      hook(result as Awaited<Return>, this, args);
+      return result;
+    };
+  };
+}
