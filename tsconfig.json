@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "experimentalDecorators": false,
+    "useDefineForClassFields": true
+  },
+  "include": ["*.ts", "advanced/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
