@@ -334,3 +334,186 @@ export function After<This, Args extends unknown[], Return>(hook: (result: Await
     };
   };
 }
+
+
+/** Coalesces concurrent async calls with identical arguments per instance. */
+export function Coalesce<This extends object, Args extends unknown[], Return>() {
+  const inFlight = new WeakMap<This, Map<string, Promise<Return>>>();
+  return function (method: Method<This, Args, Promise<Return>>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Promise<Return>>>) {
+    return function (this: This, ...args: Args): Promise<Return> {
+      let calls = inFlight.get(this);
+      if (!calls) { calls = new Map(); inFlight.set(this, calls); }
+      const key = JSON.stringify(args);
+      const existing = calls.get(key);
+      if (existing) return existing;
+      const current = Promise.resolve().then(() => method.apply(this, args));
+      calls.set(key, current);
+      void current.finally(() => { if (calls?.get(key) === current) calls.delete(key); }).catch(() => undefined);
+      return current;
+    };
+  };
+}
+
+/** Reports executions whose duration exceeds the supplied threshold. */
+export function WarnSlow<This, Args extends unknown[], Return>(
+  thresholdMs: number,
+  warn: (message: string, durationMs: number) => void = (message, duration) => console.warn(message, duration),
+) {
+  if (!Number.isFinite(thresholdMs) || thresholdMs < 0) throw new RangeError("thresholdMs must be non-negative");
+  return function (method: Method<This, Args, Return>, context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    const name = String(context.name);
+    return function (this: This, ...args: Args): Return {
+      const started = Date.now();
+      const report = () => { const duration = Date.now() - started; if (duration >= thresholdMs) warn(name, duration); };
+      try {
+        const result = method.apply(this, args);
+        if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+          return Promise.resolve(result).finally(report) as Return;
+        }
+        report();
+        return result;
+      } catch (error) {
+        report();
+        throw error;
+      }
+    };
+  };
+}
+
+/** Returns a fallback value when a method throws or its promise rejects. */
+export function Fallback<This, Args extends unknown[], Return>(
+  fallback: (error: unknown, instance: This, args: Args) => Return,
+) {
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return {
+      try {
+        const result = method.apply(this, args);
+        if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+          return Promise.resolve(result).catch(error => fallback(error, this, args)) as Return;
+        }
+        return result;
+      } catch (error) {
+        return fallback(error, this, args);
+      }
+    };
+  };
+}
+
+/** Transforms a method's successful result without changing its arguments. */
+export function MapResult<This, Args extends unknown[], Return, Mapped>(
+  mapper: (result: Awaited<Return>, instance: This, args: Args) => Mapped,
+) {
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return | Mapped {
+      const result = method.apply(this, args);
+      if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+        return Promise.resolve(result).then(value => mapper(value as Awaited<Return>, this, args)) as Return;
+      }
+      return mapper(result as Awaited<Return>, this, args);
+    };
+  };
+}
+
+/** Rejects calls whose arguments do not satisfy a predicate. */
+export function GuardArgs<This, Args extends unknown[], Return>(
+  predicate: (...args: Args) => boolean,
+  message = "Arguments rejected by guard",
+) {
+  return function (method: Method<This, Args, Return>, context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    const name = String(context.name);
+    return function (this: This, ...args: Args): Return {
+      if (!predicate(...args)) throw new TypeError(`${message}: ${name}`);
+      return method.apply(this, args);
+    };
+  };
+}
+
+/** Caps concurrent asynchronous executions and queues excess calls in FIFO order. */
+export function LimitConcurrency<This, Args extends unknown[], Return>(limit: number) {
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError("limit must be a positive integer");
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return function (method: Method<This, Args, Promise<Return>>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Promise<Return>>>) {
+    return async function (this: This, ...args: Args): Promise<Return> {
+      if (active >= limit) await new Promise<void>(resolve => waiting.push(resolve));
+      active++;
+      try { return await method.apply(this, args); }
+      finally { active--; waiting.shift()?.(); }
+    };
+  };
+}
+
+/** Emits structured lifecycle events without exposing method arguments. */
+export function Audit<This, Args extends unknown[], Return>(
+  sink: (event: { method: string; phase: "start" | "success" | "error"; timestamp: number; error?: unknown }) => void,
+) {
+  return function (method: Method<This, Args, Return>, context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    const name = String(context.name);
+    return function (this: This, ...args: Args): Return {
+      const emit = (phase: "start" | "success" | "error", error?: unknown) => sink({ method: name, phase, timestamp: Date.now(), ...(phase === "error" ? { error } : {}) });
+      emit("start");
+      try {
+        const result = method.apply(this, args);
+        if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+          return Promise.resolve(result).then(value => { emit("success"); return value; }, error => { emit("error", error); throw error; }) as Return;
+        }
+        emit("success");
+        return result;
+      } catch (error) {
+        emit("error", error);
+        throw error;
+      }
+    };
+  };
+}
+
+/** Prevents overlapping calls to the same decorated method on one instance. */
+export function NonReentrant<This extends object, Args extends unknown[], Return>() {
+  const running = new WeakSet<This>();
+  return function (method: Method<This, Args, Return>, context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    const name = String(context.name);
+    return function (this: This, ...args: Args): Return {
+      if (running.has(this)) throw new Error(`Reentrant call blocked: ${name}`);
+      running.add(this);
+      try {
+        const result = method.apply(this, args);
+        if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+          return Promise.resolve(result).finally(() => running.delete(this)) as Return;
+        }
+        running.delete(this);
+        return result;
+      } catch (error) {
+        running.delete(this);
+        throw error;
+      }
+    };
+  };
+}
+
+/** Trims whitespace from string results, including fulfilled promises. */
+export function TrimResult<This, Args extends unknown[]>(method: Method<This, Args, string>, _context: ClassMethodDecoratorContext<This, Method<This, Args, string>>) {
+  return function (this: This, ...args: Args): string {
+    const result = method.apply(this, args);
+    if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+      return Promise.resolve(result).then(value => value.trim()) as string;
+    }
+    return result.trim();
+  };
+}
+
+/** Converts a successful result into a discriminated success/error envelope. */
+export function ResultEnvelope<This, Args extends unknown[], Return>() {
+  return function (method: Method<This, Args, Return>, _context: ClassMethodDecoratorContext<This, Method<This, Args, Return>>) {
+    return function (this: This, ...args: Args): Return | { ok: true; value: Awaited<Return> } | { ok: false; error: unknown } {
+      try {
+        const result = method.apply(this, args);
+        if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result) {
+          return Promise.resolve(result).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error })) as Return;
+        }
+        return { ok: true, value: result as Awaited<Return> };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    };
+  };
+}
