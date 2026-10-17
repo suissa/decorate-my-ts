@@ -16,7 +16,8 @@ export function Memoize(ttlMs?: number, keyResolver?: (...args: any[]) => string
         caches.set(this, cache);
       }
 
-      const key = keyResolver ? keyResolver(...args) : JSON.stringify(args);
+      const serialized = JSON.stringify(args);
+      const key = keyResolver ? keyResolver(...args) : (serialized ?? args.map(String).join("|"));
       const existing = cache.get(key);
       if (existing && (!ttlMs || Date.now() < existing.expiry)) {
         return existing.value as Return;
